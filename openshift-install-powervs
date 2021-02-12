@@ -38,6 +38,7 @@ Available commands:
 Where <args>:
   -var               Terraform variable to be passed to the create/destroy command
   -var-file          Terraform variable file name in current directory. (By default using var.tfvars)
+  -flavor            Terraform template flavors  [small | medium | large ]
   -force-destroy     Not ask for confirmation during destroy command
   -ignore-os-checks  Ignore operating system related checks
   -verbose           Enable verbose for terraform console messages
@@ -73,6 +74,7 @@ LOGFILE="ocp4-upi-powervs_$(date "+%Y%m%d%H%M%S")"
 TRACE=0
 TF_TRACE=0
 FORCE_DESTROY=0
+IF_FLAVOR=0
 IGNORE_OS=0
 DISPLAY_ALL_IMAGES=0
 IS_HA=0
@@ -662,6 +664,22 @@ function precheck_tools {
 }
 
 #-------------------------------------------------------------------------
+# Check Flavor and run setup
+#-------------------------------------------------------------------------
+function flavor_set {
+
+#  Flavor Option
+  if [ -f "logs/flavor.log" ]; then
+    IF_FLAVOR=$(awk -F= '/IF_FLAVOR/ { print $2 }' logs/flavor.log)
+    FLAVOR_TYPE=$(awk -F= '/FLAVOR_TYPE/ { print $2 }' logs/flavor.log)
+    cat automation/compute-vars/$FLAVOR_TYPE.tfvars >> "$VAR_TEMPLATE"
+    rm logs/flavor.log
+  else
+    IF_FLAVOR=0
+  fi
+}
+
+#-------------------------------------------------------------------------
 # Create the cluster
 #-------------------------------------------------------------------------
 function apply {
@@ -831,8 +849,24 @@ function variables_nodes {
     no_of_bastion=1
   fi
 
-  question "Do you want to use the default configuration for all the cluster nodes?" "yes no"
-  if [ "${value}" == "yes" ]; then
+  flavor_set
+
+  if [[ $IF_FLAVOR -ne 2  ]]; then
+    FLAVOR_TYPE=$(ls automation/compute-vars/ && echo CUSTOM)
+    question "Select the flavor for the cluster nodes:" "${FLAVOR_TYPE}" yes
+    if [ "${value}" != "CUSTOM" ]; then
+      vars="-var-file ../$varfile -var-file ../automation/compute-vars/$value" >> "$VAR_TEMPLATE"
+      IF_FLAVOR=1
+      #sed '/processors/d' $VAR_TEMPLATE
+      cat automation/compute-vars/$value >> "$VAR_TEMPLATE"
+    else
+      vars="-var-file ../$varfile" >> "$VAR_TEMPLATE"
+    fi
+  fi
+
+  if [[ $IF_FLAVOR -eq 0 ]]; then
+    question "Do you want to use the default configuration for all the cluster nodes?" "yes no"
+    if [ "${value}" == "yes" ]; then
     {
       echo "bastion = {memory = \"16\", processors = \"1\", \"count\" = $no_of_bastion}"
       echo "bootstrap = {memory = \"32\", processors = \"0.5\", \"count\" = 1}"
@@ -840,61 +874,62 @@ function variables_nodes {
       echo "worker = {memory = \"32\", processors = \"0.5\", \"count\" = 2}"
     } >> "$VAR_TEMPLATE"
     return 0
-  fi
+    fi
 
-  # Bastion node config
-  question "Do you want to use the default configuration for bastion node? (memory(GB)=16 processors=1)" "yes no"
-  if [ "${value}" == "yes" ]; then
-    echo "bastion = {memory = \"16\", processors = \"1\", \"count\" = $no_of_bastion}" >> "$VAR_TEMPLATE"
-  else
-    question "Enter the memory required for bastion nodes" "16"
-    memory="${value}"
-    question "Enter the processors required for bastion nodes" "1"
-    proc="${value}"
-    echo "bastion = {memory = \"$memory\", processors = \"$proc\", \"count\" = $no_of_bastion}" >> "$VAR_TEMPLATE"
-  fi
+    # Bastion node config
+    question "Do you want to use the default configuration for bastion node? (memory(GB)=16 processors=1)" "yes no"
+    if [ "${value}" == "yes" ]; then
+      echo "bastion = {memory = \"16\", processors = \"1\", \"count\" = $no_of_bastion}" >> "$VAR_TEMPLATE"
+    else
+      question "Enter the memory required for bastion nodes" "16"
+      memory="${value}"
+      question "Enter the processors required for bastion nodes" "1"
+      proc="${value}"
+      echo "bastion = {memory = \"$memory\", processors = \"$proc\", \"count\" = $no_of_bastion}" >> "$VAR_TEMPLATE"
+    fi
 
-  # Bootstrap node config
-  question "Do you want to use the default configuration for bootstrap node? (memory(GB)=32 processors=0.5)" "yes no"
-  if [ "${value}" == "yes" ]; then
-    echo "bootstrap = {memory = \"32\", processors = \"0.5\", \"count\" = 1}" >> "$VAR_TEMPLATE"
-  else
-    question "Enter the memory required for bootstrap node" "32"
-    memory="${value}"
-    question "Enter the processors required for bootstrap node" "0.5"
-    proc="${value}"
-    echo "bootstrap = {memory = \"$memory\", processors = \"$proc\", \"count\" = 1}" >> "$VAR_TEMPLATE"
-  fi
+    # Bootstrap node config
+    question "Do you want to use the default configuration for bootstrap node? (memory(GB)=32 processors=0.5)" "yes no"
+    if [ "${value}" == "yes" ]; then
+      echo "bootstrap = {memory = \"32\", processors = \"0.5\", \"count\" = 1}" >> "$VAR_TEMPLATE"
+    else
+      question "Enter the memory required for bootstrap node" "32"
+      memory="${value}"
+      question "Enter the processors required for bootstrap node" "0.5"
+      proc="${value}"
+      echo "bootstrap = {memory = \"$memory\", processors = \"$proc\", \"count\" = 1}" >> "$VAR_TEMPLATE"
+    fi
 
-  # Master nodes config
-  question "Do you want to use the default configuration for master nodes? (memory(GB)=32 processors=0.5 count=3)" "yes no"
-  if [ "${value}" == "yes" ]; then
-    echo "master = {memory = \"32\", processors = \"0.5\", \"count\" = 3}" >> "$VAR_TEMPLATE"
-  else
-    question "Enter the memory required for master nodes" "32"
-    memory="${value}"
-    question "Enter the processors required for master nodes" "0.5"
-    proc="${value}"
-    # TODO: Uncomment when we have support for masters >3
-    #question "Select the count of master nodes" "3 5"
-    #count="${value}"
-    count=3
-    echo "master = {memory = \"$memory\", processors = \"$proc\", \"count\" = $count}" >> "$VAR_TEMPLATE"
-  fi
+    # Master nodes config
+    question "Do you want to use the default configuration for master nodes? (memory(GB)=32 processors=0.5 count=3)" "yes no"
+    if [ "${value}" == "yes" ]; then
+      echo "master = {memory = \"32\", processors = \"0.5\", \"count\" = 3}" >> "$VAR_TEMPLATE"
+    else
+      question "Enter the memory required for master nodes" "32"
+      memory="${value}"
+      question "Enter the processors required for master nodes" "0.5"
+      proc="${value}"
+      # TODO: Uncomment when we have support for masters >3
+      #question "Select the count of master nodes" "3 5"
+      #count="${value}"
+      count=3
+      echo "master = {memory = \"$memory\", processors = \"$proc\", \"count\" = $count}" >> "$VAR_TEMPLATE"
+    fi
 
-  # Worker nodes config
-  question "Do you want to use the default configuration for worker nodes? (memory(GB)=32 processors=0.5 count=2)" "yes no"
-  if [ "${value}" == "yes" ]; then
-    echo "worker = {memory = \"32\", processors = \"0.5\", \"count\" = 2}" >> "$VAR_TEMPLATE"
-  else
-    question "Enter the memory required for worker nodes" "32"
-    memory="${value}"
-    question "Enter the processors required for worker nodes" "0.5"
-    proc="${value}"
-    question "Enter the count of worker nodes" "2"
-    count="${value}"
-    echo "worker = {memory = \"$memory\", processors = \"$proc\", \"count\" = $count}" >> "$VAR_TEMPLATE"
-  fi
+    # Worker nodes config
+    question "Do you want to use the default configuration for worker nodes? (memory(GB)=32 processors=0.5 count=2)" "yes no"
+    if [ "${value}" == "yes" ]; then
+      echo "worker = {memory = \"32\", processors = \"0.5\", \"count\" = 2}" >> "$VAR_TEMPLATE"
+    else
+      question "Enter the memory required for worker nodes" "32"
+      memory="${value}"
+      question "Enter the processors required for worker nodes" "0.5"
+      proc="${value}"
+      question "Enter the count of worker nodes" "2"
+      count="${value}"
+      echo "worker = {memory = \"$memory\", processors = \"$proc\", \"count\" = $count}" >> "$VAR_TEMPLATE"
+    fi
+  fi  
 }
 
 #-------------------------------------------------------------------------
@@ -1334,6 +1369,26 @@ function process_varfile {
 }
 
 #-------------------------------------------------------------------------
+# Flavor
+#-------------------------------------------------------------------------
+function process_flavor {
+       flavor_file="$flavortype.tfvars"
+        [[ -z "$flavortype" ]] &&  error "The -flavor '$flavourtype' Please specify an option with flavor."
+
+       if [[ $flavortype == "small" || $flavortype == "medium" || $flavortype == "large" ]]; then
+          {
+              echo "IF_FLAVOR=2"
+              echo "FLAVOR_TYPE=$flavortype"
+          }  > logs/flavor.log
+       else
+         error "The -flavor '$flavourtype' is not valid. Please select either [small | medium | large]."
+       fi
+
+       #flavor_set
+
+}
+
+#-------------------------------------------------------------------------
 # Perform platform checks
 #-------------------------------------------------------------------------
 function platform_checks {
@@ -1426,6 +1481,12 @@ function main {
     "-force-destroy")
       warn "Enabling forceful destruction option for terraform destroy command"
       FORCE_DESTROY=1
+      ;;
+    "-flavor")
+      shift
+      flavortype="$1"
+      process_flavor "$flavortype"
+      vars+=" -var-file ../$varfile -var-file ../automation/compute-vars/$flavortype.tfvars"
       ;;
     "-ignore-os-checks")
       warn "Ignoring operating system related checks"
