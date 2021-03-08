@@ -120,8 +120,20 @@ Environment Variables:
   NO_OF_RETRY         Number of retries/attempts to run repeatable actions such as create (Default: 5)
 
 Submit issues at: https://github.com/ocp-power-automation/openshift-install-power/issues
-
 ```
+
+**Usage with Containers**
+
+1. Create an install directory where all the configurations, logs and data files will be stored.
+```
+$ mkdir ocp-install-dir && cd ocp-install-dir
+```
+2. To use the image run the following command.
+```
+docker run -it -e IBMCLOUD_API_KEY="<key>" -v $(pwd):/root/ocp-install openshift-install-powervs create
+```
+In case you need to build the openshift-install-powervs image, check out the following [Usage with Containers](https://github.com/ocp-power-automation/container-img/docs) link
+
 
 ## Prerequisites
 
