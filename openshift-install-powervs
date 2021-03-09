@@ -38,6 +38,7 @@ Available commands:
 Where <args>:
   -var               Terraform variable to be passed to the create/destroy command
   -var-file          Terraform variable file name in current directory. (By default using var.tfvars)
+  -flavor            Cluster compute template to use eg: small, medium, large
   -force-destroy     Not ask for confirmation during destroy command
   -ignore-os-checks  Ignore operating system related checks
   -verbose           Enable verbose for terraform console messages
@@ -609,6 +610,13 @@ function precheck_input {
     VAR_PUBLIC_KEY_FILE=$(read_varfile "public_key_file")
     VAR_RHEL_SUBS_USER=$(read_varfile "rhel_subscription_username")
   fi
+  
+  for var in $vars; do 
+    if [[ $var == *"compute-vars"* ]]; then
+      varfile="var.tfvars"
+      vars=" -var-file ../$varfile -var-file ../automation/compute-vars/$flavor.tfvars" 
+    fi	    
+  done
 
   debug_switch
   if [ -n "$VAR_RHEL_SUBS_USER" ] && [ -z "$RHEL_SUBS_PASSWORD" ] && [ -z "$VAR_RHEL_SUBS_PASS" ]; then
@@ -834,6 +842,19 @@ function variables_nodes {
     no_of_bastion=1
   fi
 
+  if [[ -n $flavor ]]; then
+    cat automation/compute-vars/$flavor.tfvars >> "$VAR_TEMPLATE"
+    return 0
+  else
+    flavor=$(ls automation/compute-vars/ && echo CUSTOM)
+    question "Select the flavor for the cluster nodes:" "${flavor}" yes
+    if [ "${value}" != "CUSTOM" ]; then
+      vars="-var-file ../$varfile -var-file ../automation/compute-vars/$value" >> "$VAR_TEMPLATE"
+      cat automation/compute-vars/$value >> "$VAR_TEMPLATE"
+      return 0
+    fi
+  fi
+  
   question "Do you want to use the default configuration for all the cluster nodes?" "yes no"
   if [ "${value}" == "yes" ]; then
     {
@@ -1340,6 +1361,16 @@ function process_varfile {
 }
 
 #-------------------------------------------------------------------------
+# Flavor
+#-------------------------------------------------------------------------
+function validate_flavor {
+   [[ -z "$flavor" ]] &&  error "The -flavor option is not provided"
+
+   flavor_list=($(ls automation/compute-vars/))
+   (for i in "${flavor_list[@]}"; do [[ "$i" == "$flavor.tfvars" ]] && exit 0; done)  || error "The -flavor '$flavor' is not valid. Please select either ${flavor_list[*]/.tfvars/}"
+}
+
+#-------------------------------------------------------------------------
 # Perform platform checks
 #-------------------------------------------------------------------------
 function platform_checks {
@@ -1432,6 +1463,12 @@ function main {
     "-force-destroy")
       warn "Enabling forceful destruction option for terraform destroy command"
       FORCE_DESTROY=1
+      ;;
+    "-flavor")
+      shift
+      flavor="$1"
+      validate_flavor "$flavor"
+      vars+=" -var-file ../$varfile -var-file ../automation/compute-vars/$flavor.tfvars"
       ;;
     "-ignore-os-checks")
       warn "Ignoring operating system related checks"
